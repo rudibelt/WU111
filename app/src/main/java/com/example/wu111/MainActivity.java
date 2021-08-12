@@ -2,37 +2,87 @@ package com.example.wu111;
 
 import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
-import com.google.android.material.snackbar.Snackbar;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
-import androidx.fragment.app.FragmentTransaction;
 
+import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.View;
 
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.TextView;
+import android.widget.AdapterView;
+import android.widget.ListView;
+import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class MainActivity extends AppCompatActivity {
     private BluetoothAdapter mBluetoothAdapter;
+    private BluetoothLeScanner mBluetoothLeScanner;
+    private static final long SCAN_PERIOD = 5000;
+    private ScanCallback mScanCallback;
+    private ScanResultAdapter mAdapter;
+    private static final String TAG = MainActivity.class.getSimpleName();
+    private BluetoothGatt ble;
+    private UUID SHIMANO_BICYCLE_INFORMATION = UUID.fromString("000018ef-5348-494d-414e-4f5f424c4500");
+    private UUID INSTANTANEOUS_INFORMATION = UUID.fromString("00002ac2-5348-494d-414e-4f5f424c4500");
+
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
+
+        ListView listView = (ListView) findViewById(R.id.listView);
+        mAdapter = new ScanResultAdapter(getApplicationContext(),
+                LayoutInflater.from(this));
+        listView.setAdapter(mAdapter);
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                final BluetoothDevice device = mAdapter.getDevice(position);
+                if (device == null) return;
+                Intent intent = new Intent(parent.getContext(), DeviceControlActivity.class);
+                intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
+                intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
+                //if (mScanning) {
+                    mBluetoothLeScanner.stopScan(mScanCallback);
+                    //mBluetoothAdapter.stopLeScan((BluetoothAdapter.LeScanCallback) mScanCallback);
+                    //mScanning = false;
+                //}
+
+                ble = device.connectGatt(parent.getContext(), false, gattCallback );
+                ble.disconnect();
+                ble.connect();
+                ble.discoverServices();
+
+                //startActivity(intent);
+            }
+        });
 
 
         if (savedInstanceState == null) {
@@ -58,11 +108,12 @@ public class MainActivity extends AppCompatActivity {
                         });
                         builder.show();
                     }
+
+                    mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
+                    startScanning();
                     // Are Bluetooth Advertisements supported on this device?
                     //if (mBluetoothAdapter.isMultipleAdvertisementSupported()) {
 
-                    // Everything is supported and enabled, load the fragments.
-                    setupFragments();
 
                     //} else {
 
@@ -81,14 +132,6 @@ public class MainActivity extends AppCompatActivity {
                 showErrorText(R.string.bt_not_supported);
             }
 
-            FloatingActionButton fab = findViewById(R.id.fab);
-            fab.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                            .setAction("Action", null).show();
-                }
-            });
         }
     }
 
@@ -116,18 +159,160 @@ public class MainActivity extends AppCompatActivity {
 
     private void showErrorText(int messageId) {
 
-        TextView view = (TextView) findViewById(R.id.error_textview);
-        view.setText(getString(messageId));
+        //TextView view = (TextView) findViewById(R.id.error_textview);
+        //view.setText(getString(messageId));
     }
 
-    private void setupFragments() {
-        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
-
-        ScannerFragment scannerFragment = new ScannerFragment();
-        // Fragments can't access system services directly, so pass it the BluetoothAdapter
-        scannerFragment.setBluetoothAdapter(mBluetoothAdapter);
-        transaction.replace(R.id.nav_host_fragment, scannerFragment);
-
-        transaction.commit();
+    protected void onListItemClick(View v) {
+        //final BluetoothDevice device = mLeDeviceListAdapter.getDevice(position);
+        //if (device == null) return;
+        //final Intent intent = new Intent(this, DeviceControlActivity.class);
+        //intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
+        //intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
+        //if (mScanning) {
+        //    mBluetoothAdapter.stopLeScan(mLeScanCallback);
+        //    mScanning = false;
+        //}
+        //startActivity(intent);
     }
+    /**
+     * Return a List of {@link ScanFilter} objects to filter by Service UUID.
+     */
+    private List<ScanFilter> buildScanFilters() {
+        List<ScanFilter> scanFilters = new ArrayList<>();
+
+        ScanFilter.Builder builder = new ScanFilter.Builder();
+        // Comment out the below line to see all BLE devices around you
+        //builder.setServiceUuid(Constants.Service_UUID);
+        scanFilters.add(builder.build());
+
+        return scanFilters;
+    }
+
+    /**
+     * Return a {@link ScanSettings} object set to use low power (to preserve battery life).
+     */
+    private ScanSettings buildScanSettings() {
+        ScanSettings.Builder builder = new ScanSettings.Builder();
+        builder.setScanMode(ScanSettings.SCAN_MODE_LOW_POWER);
+        return builder.build();
+    }
+    /**
+     * Start scanning for BLE Advertisements (& set it up to stop after a set period of time).
+     */
+    public void startScanning() {
+        if (mScanCallback == null) {
+            Log.d(TAG, "Starting Scanning");
+
+            // Will stop the scanning after a set time.
+            //mHandler.postDelayed(new Runnable() {
+            //   @Override
+            //    public void run() {
+            //        stopScanning();
+            //    }
+            //}, SCAN_PERIOD);
+
+            // Kick off a new scan.
+            mScanCallback = new SampleScanCallback();
+            mBluetoothLeScanner.startScan(mScanCallback);
+
+            String toastText = getString(R.string.scan_start_toast) + " "
+                    + TimeUnit.SECONDS.convert(SCAN_PERIOD, TimeUnit.MILLISECONDS) + " "
+                    + getString(R.string.seconds);
+            Toast.makeText(this, toastText, Toast.LENGTH_LONG).show();
+        } else {
+            Toast.makeText(this, R.string.already_scanning, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+
+
+    private BluetoothGattCallback gattCallback =  new BluetoothGattCallback() {
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            super.onCharacteristicRead(gatt, characteristic, status);
+            int a=1;
+        }
+
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            super.onConnectionStateChange(gatt, status, newState);
+            //if (newState == 1)
+            //{
+                gatt.discoverServices();
+            //}
+        }
+
+        @Override
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            super.onServicesDiscovered(gatt, status);
+
+            List<BluetoothGattService> services = gatt.getServices();
+            BluetoothGattService bikeService = gatt.getService(SHIMANO_BICYCLE_INFORMATION);
+            if (bikeService != null)
+            {
+                BluetoothGattCharacteristic di2SwitchCharacteristic = bikeService.getCharacteristic(INSTANTANEOUS_INFORMATION);
+                gatt.setCharacteristicNotification(di2SwitchCharacteristic, true);
+
+                List<BluetoothGattDescriptor> descriptors = di2SwitchCharacteristic.getDescriptors();
+
+                descriptors.forEach(descriptor ->
+                    {
+                            descriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
+                            gatt.writeDescriptor(descriptor);
+                    }
+                );
+            }
+            // Write on the config descriptors to be notified when the value changes
+            //characteristic?.descriptors?.forEach { descriptor ->
+            //        descriptor?.let {
+            //    it.value = if (enable) {
+            //        BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            //    } else {
+            //        BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+            //    }
+            //    bluetoothGatt?.writeDescriptor(it)
+            //}
+            //}
+        }
+        
+        
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            super.onCharacteristicChanged(gatt, characteristic);
+            int a=1;
+        }
+    };
+
+
+
+
+    private class SampleScanCallback extends ScanCallback {
+
+        @Override
+        public void onBatchScanResults(List<ScanResult> results) {
+            super.onBatchScanResults(results);
+
+            for (ScanResult result : results) {
+                mAdapter.add(result);
+            }
+            mAdapter.notifyDataSetChanged();
+        }
+
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            super.onScanResult(callbackType, result);
+
+            mAdapter.add(result);
+            mAdapter.notifyDataSetChanged();
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            super.onScanFailed(errorCode);
+            //Toast.makeText(this, "Scan failed with error: " + errorCode, Toast.LENGTH_LONG).show();
+
+        }
+    }
+
 }

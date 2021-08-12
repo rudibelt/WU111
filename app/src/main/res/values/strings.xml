@@ -15,4 +15,19 @@
     <string name="seconds">seconds.</string>
     <string name="scan_start_toast">Scanning for</string>
     <string name="already_scanning">Scanning already started.</string>
+    <string name="title_activity_main2">MainActivity2</string>
+    <string name="last_seen">Last Seen:</string>
+    <string name="just_now">just now</string>
+    <string name="minute_ago">minute ago</string>
+    <string name="hour_ago">hour ago</string>
+    <string name="seconds_ago">seconds ago</string>
+    <string name="minutes_ago">minutes ago</string>
+    <string name="hours_ago">hours ago</string>
+    <string name="empty_list">No devices found - refresh to try again.</string>
+    <string name="no_name">(no name)</string>
+    <!--
+    This string is used for square devices and overridden by hello_world in
+    values-round/strings.xml for round devices.
+    -->
+    <string name="hello_world">Hello Square World!</string>
 </resources>
