@@ -18,11 +18,19 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.media.SoundPool;
+import android.net.Uri;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.os.ParcelUuid;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -49,7 +57,8 @@ public class MainActivity extends AppCompatActivity {
     private BluetoothGatt ble;
     private UUID SHIMANO_BICYCLE_INFORMATION = UUID.fromString("000018ef-5348-494d-414e-4f5f424c4500");
     private UUID INSTANTANEOUS_INFORMATION = UUID.fromString("00002ac2-5348-494d-414e-4f5f424c4500");
-
+    private SoundPool soundPool;
+    private int sound1;
 
 
     @Override
@@ -57,6 +66,17 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+        soundPool = new SoundPool.Builder()
+                .setMaxStreams(6)
+                .setAudioAttributes(audioAttributes)
+                .build();
+
+        sound1 = soundPool.load(getBaseContext(), R.raw.bicycle_bell, 1);
+        
         ListView listView = (ListView) findViewById(R.id.listView);
         mAdapter = new ScanResultAdapter(getApplicationContext(),
                 LayoutInflater.from(this));
@@ -110,7 +130,12 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
-                    startScanning();
+                    if (mBluetoothLeScanner != null) {
+                        startScanning();
+                        Log.d(TAG, "scan started");
+                    }  else {
+                        Log.e(TAG, "could not get scanner object");
+                    }
                     // Are Bluetooth Advertisements supported on this device?
                     //if (mBluetoothAdapter.isMultipleAdvertisementSupported()) {
 
@@ -183,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
 
         ScanFilter.Builder builder = new ScanFilter.Builder();
         // Comment out the below line to see all BLE devices around you
-        //builder.setServiceUuid(Constants.Service_UUID);
+        builder.setServiceUuid(new ParcelUuid(SHIMANO_BICYCLE_INFORMATION));
         scanFilters.add(builder.build());
 
         return scanFilters;
@@ -194,7 +219,11 @@ public class MainActivity extends AppCompatActivity {
      */
     private ScanSettings buildScanSettings() {
         ScanSettings.Builder builder = new ScanSettings.Builder();
-        builder.setScanMode(ScanSettings.SCAN_MODE_LOW_POWER);
+        builder.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+                .setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
+                .setReportDelay(0L);
         return builder.build();
     }
     /**
@@ -214,11 +243,9 @@ public class MainActivity extends AppCompatActivity {
 
             // Kick off a new scan.
             mScanCallback = new SampleScanCallback();
-            mBluetoothLeScanner.startScan(mScanCallback);
+            mBluetoothLeScanner.startScan(buildScanFilters(), buildScanSettings(),mScanCallback);
 
-            String toastText = getString(R.string.scan_start_toast) + " "
-                    + TimeUnit.SECONDS.convert(SCAN_PERIOD, TimeUnit.MILLISECONDS) + " "
-                    + getString(R.string.seconds);
+            String toastText = getString(R.string.scan_start_toast);
             Toast.makeText(this, toastText, Toast.LENGTH_LONG).show();
         } else {
             Toast.makeText(this, R.string.already_scanning, Toast.LENGTH_SHORT).show();
@@ -280,7 +307,29 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             super.onCharacteristicChanged(gatt, characteristic);
-            int a=1;
+            byte[] characteristicValue = characteristic.getValue();
+            int rightButtonValue = ((int) characteristicValue[2]);
+            if (rightButtonValue > 47)
+            {
+                //Uri alarmTone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                //Ringtone ringtoneAlarm = RingtoneManager.getRingtone(getApplicationContext(), alarmTone);
+                //ringtoneAlarm.play();
+
+
+                AudioManager audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
+                audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, audioManager.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), 0);
+
+                //Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                //MediaPlayer mp=new MediaPlayer();
+                //mp.setLooping(false);
+                //mp = MediaPlayer.create(MainActivity.this, notification);
+                //mp.setVolume(1,1);
+                //mp.start();
+                
+
+                soundPool.play(sound1, 1F, 1F, 0, 0, 1F);
+                //soundPool.autoPause();
+            }
         }
     };
 
@@ -305,14 +354,17 @@ public class MainActivity extends AppCompatActivity {
 
             mAdapter.add(result);
             mAdapter.notifyDataSetChanged();
+            mBluetoothLeScanner.stopScan(mScanCallback);
         }
 
         @Override
         public void onScanFailed(int errorCode) {
             super.onScanFailed(errorCode);
-            //Toast.makeText(this, "Scan failed with error: " + errorCode, Toast.LENGTH_LONG).show();
+            Toast.makeText(getApplicationContext(), "Scan failed with error: " + errorCode, Toast.LENGTH_LONG).show();
 
         }
+
+
     }
 
 }
