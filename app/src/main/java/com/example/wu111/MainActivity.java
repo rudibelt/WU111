@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
@@ -25,11 +26,14 @@ import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.media.SoundPool;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelUuid;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -43,9 +47,15 @@ import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+
+import static android.bluetooth.BluetoothDevice.BOND_BONDED;
+import static android.bluetooth.BluetoothDevice.BOND_BONDING;
+import static android.bluetooth.BluetoothDevice.BOND_NONE;
+import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
 
 public class MainActivity extends AppCompatActivity {
     private BluetoothAdapter mBluetoothAdapter;
@@ -59,6 +69,8 @@ public class MainActivity extends AppCompatActivity {
     private UUID INSTANTANEOUS_INFORMATION = UUID.fromString("00002ac2-5348-494d-414e-4f5f424c4500");
     private SoundPool soundPool;
     private int sound1;
+    private Runnable discoverServicesRunnable;
+    private Handler bleCallBackHandler = null;
 
 
     @Override
@@ -76,6 +88,8 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         sound1 = soundPool.load(getBaseContext(), R.raw.bicycle_bell, 1);
+
+        bleCallBackHandler = new Handler(Looper.getMainLooper());
         
         ListView listView = (ListView) findViewById(R.id.listView);
         mAdapter = new ScanResultAdapter(getApplicationContext(),
@@ -95,10 +109,8 @@ public class MainActivity extends AppCompatActivity {
                     //mScanning = false;
                 //}
 
-                ble = device.connectGatt(parent.getContext(), false, gattCallback );
-                ble.disconnect();
-                ble.connect();
-                ble.discoverServices();
+                ble = device.connectGatt(parent.getContext(), true, gattCallback, TRANSPORT_LE);
+                //ble.discoverServices();
 
                 //startActivity(intent);
             }
@@ -264,10 +276,48 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             super.onConnectionStateChange(gatt, status, newState);
-            //if (newState == 1)
-            //{
-                gatt.discoverServices();
-            //}
+            if(status == BluetoothGatt.GATT_SUCCESS) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    // We successfully connected, proceed with service discovery
+                    int bondstate = ble.getDevice().getBondState();
+                    // Take action depending on the bond state
+                    if(bondstate == BOND_NONE || bondstate == BOND_BONDED) {
+
+                        // Connected to device, now proceed to discover it's services but delay a bit if needed
+                        int delayWhenBonded = 0;
+                        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N) {
+                            delayWhenBonded = 1000;
+                        }
+                        final int delay = bondstate == BOND_BONDED ? delayWhenBonded : 0;
+
+                        discoverServicesRunnable = new Runnable() {
+                            @Override
+                            public void run() {
+                                Log.d(TAG, String.format(Locale.ENGLISH, "discovering services of '%s' with delay of %d ms", ble.getDevice().getName(), delay));
+                                boolean result = gatt.discoverServices();
+                                if (!result) {
+                                    Log.e(TAG, "discoverServices failed to start");
+                                }
+                                discoverServicesRunnable = null;
+                            }
+                        };
+
+                        bleCallBackHandler.postDelayed(discoverServicesRunnable, delay);
+                    } else if (bondstate == BOND_BONDING) {
+                        // Bonding process in progress, let it complete
+                        Log.i(TAG, "waiting for bonding to complete");
+                    }
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    // We successfully disconnected on our own request
+                    gatt.close();
+                } else {
+                    // We're CONNECTING or DISCONNECTING, ignore for now
+                }
+            } else {
+                // An error happened...figure out what happened!
+                Log.d(TAG, "error occured when connection status code" + status);
+                gatt.close();
+            }
         }
 
         @Override
@@ -354,7 +404,7 @@ public class MainActivity extends AppCompatActivity {
 
             mAdapter.add(result);
             mAdapter.notifyDataSetChanged();
-            mBluetoothLeScanner.stopScan(mScanCallback);
+
         }
 
         @Override
