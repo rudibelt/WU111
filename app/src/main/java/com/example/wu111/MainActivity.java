@@ -1,6 +1,8 @@
 package com.example.wu111;
 
 import android.Manifest;
+import android.app.Notification;
+import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -56,21 +58,24 @@ import static android.bluetooth.BluetoothDevice.BOND_BONDED;
 import static android.bluetooth.BluetoothDevice.BOND_BONDING;
 import static android.bluetooth.BluetoothDevice.BOND_NONE;
 import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
+import static androidx.core.app.NotificationCompat.PRIORITY_LOW;
 
 public class MainActivity extends AppCompatActivity {
+
     private BluetoothAdapter mBluetoothAdapter;
     private BluetoothLeScanner mBluetoothLeScanner;
     private static final long SCAN_PERIOD = 5000;
     private ScanCallback mScanCallback;
     private ScanResultAdapter mAdapter;
     private static final String TAG = MainActivity.class.getSimpleName();
-    private BluetoothGatt ble;
+
     private UUID SHIMANO_BICYCLE_INFORMATION = UUID.fromString("000018ef-5348-494d-414e-4f5f424c4500");
     private UUID INSTANTANEOUS_INFORMATION = UUID.fromString("00002ac2-5348-494d-414e-4f5f424c4500");
-    private SoundPool soundPool;
-    private int sound1;
-    private Runnable discoverServicesRunnable;
-    private Handler bleCallBackHandler = null;
+
+
+
+    //private BluetoothDevice device;
+    private BluetoothLeScanner mBleScanner;
 
 
     @Override
@@ -78,18 +83,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build();
-        soundPool = new SoundPool.Builder()
-                .setMaxStreams(6)
-                .setAudioAttributes(audioAttributes)
-                .build();
 
-        sound1 = soundPool.load(getBaseContext(), R.raw.bicycle_bell, 1);
 
-        bleCallBackHandler = new Handler(Looper.getMainLooper());
+
         
         ListView listView = (ListView) findViewById(R.id.listView);
         mAdapter = new ScanResultAdapter(getApplicationContext(),
@@ -98,7 +94,7 @@ public class MainActivity extends AppCompatActivity {
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                final BluetoothDevice device = mAdapter.getDevice(position);
+                BluetoothDevice device = mAdapter.getDevice(position);
                 if (device == null) return;
                 Intent intent = new Intent(parent.getContext(), DeviceControlActivity.class);
                 intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
@@ -108,8 +104,26 @@ public class MainActivity extends AppCompatActivity {
                     //mBluetoothAdapter.stopLeScan((BluetoothAdapter.LeScanCallback) mScanCallback);
                     //mScanning = false;
                 //}
+                Intent notificationIntent = new Intent(parent.getContext(), BleService.class);
+                notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
+                notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
 
-                ble = device.connectGatt(parent.getContext(), true, gattCallback, TRANSPORT_LE);
+                PendingIntent pendingIntent =
+                        PendingIntent.getActivity(parent.getContext(), 0, notificationIntent, 0);
+
+                Notification notification =
+                        new Notification.Builder(parent.getContext(), "0")
+                                .setContentTitle("test")
+                                .setContentText("test")
+                                //.setSmallIcon(R.drawable.icon)
+                                .setContentIntent(pendingIntent)
+                                .setTicker("ticker")
+                                .build();
+
+// Notification ID cannot be 0.
+                startForegroundService(notificationIntent);
+                //
+
                 //ble.discoverServices();
 
                 //startActivity(intent);
@@ -231,8 +245,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private ScanSettings buildScanSettings() {
         ScanSettings.Builder builder = new ScanSettings.Builder();
-        builder.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+        builder.setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES )
                 .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
                 .setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
                 .setReportDelay(0L);
@@ -255,6 +269,7 @@ public class MainActivity extends AppCompatActivity {
 
             // Kick off a new scan.
             mScanCallback = new SampleScanCallback();
+            mBluetoothLeScanner.stopScan(mScanCallback);
             mBluetoothLeScanner.startScan(buildScanFilters(), buildScanSettings(),mScanCallback);
 
             String toastText = getString(R.string.scan_start_toast);
@@ -266,125 +281,22 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private BluetoothGattCallback gattCallback =  new BluetoothGattCallback() {
+
+
+
+    private ScanCallback mLeScanCallback = new ScanCallback() {
         @Override
-        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-            super.onCharacteristicRead(gatt, characteristic, status);
-            int a=1;
-        }
-
-        @Override
-        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-            super.onConnectionStateChange(gatt, status, newState);
-            if(status == BluetoothGatt.GATT_SUCCESS) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    // We successfully connected, proceed with service discovery
-                    int bondstate = ble.getDevice().getBondState();
-                    // Take action depending on the bond state
-                    if(bondstate == BOND_NONE || bondstate == BOND_BONDED) {
-
-                        // Connected to device, now proceed to discover it's services but delay a bit if needed
-                        int delayWhenBonded = 0;
-                        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N) {
-                            delayWhenBonded = 1000;
-                        }
-                        final int delay = bondstate == BOND_BONDED ? delayWhenBonded : 0;
-
-                        discoverServicesRunnable = new Runnable() {
-                            @Override
-                            public void run() {
-                                Log.d(TAG, String.format(Locale.ENGLISH, "discovering services of '%s' with delay of %d ms", ble.getDevice().getName(), delay));
-                                boolean result = gatt.discoverServices();
-                                if (!result) {
-                                    Log.e(TAG, "discoverServices failed to start");
-                                }
-                                discoverServicesRunnable = null;
-                            }
-                        };
-
-                        bleCallBackHandler.postDelayed(discoverServicesRunnable, delay);
-                    } else if (bondstate == BOND_BONDING) {
-                        // Bonding process in progress, let it complete
-                        Log.i(TAG, "waiting for bonding to complete");
-                    }
-                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    // We successfully disconnected on our own request
-                    gatt.close();
-                } else {
-                    // We're CONNECTING or DISCONNECTING, ignore for now
+        public void onScanResult(int callbackType, ScanResult result) {
+            super.onScanResult(callbackType, result);
+            //if (result.getDevice().getAddress().equals(mBluetoothDeviceAddress)) {
+                //mMainHandler.post(mConnectRunnable);
+                if (mBleScanner != null) {
+                    mBleScanner.stopScan(mLeScanCallback);
+                    mBleScanner = null;
                 }
-            } else {
-                // An error happened...figure out what happened!
-                Log.d(TAG, "error occured when connection status code" + status);
-                gatt.close();
-            }
-        }
-
-        @Override
-        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            super.onServicesDiscovered(gatt, status);
-
-            List<BluetoothGattService> services = gatt.getServices();
-            BluetoothGattService bikeService = gatt.getService(SHIMANO_BICYCLE_INFORMATION);
-            if (bikeService != null)
-            {
-                BluetoothGattCharacteristic di2SwitchCharacteristic = bikeService.getCharacteristic(INSTANTANEOUS_INFORMATION);
-                gatt.setCharacteristicNotification(di2SwitchCharacteristic, true);
-
-                List<BluetoothGattDescriptor> descriptors = di2SwitchCharacteristic.getDescriptors();
-
-                descriptors.forEach(descriptor ->
-                    {
-                            descriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
-                            gatt.writeDescriptor(descriptor);
-                    }
-                );
-            }
-            // Write on the config descriptors to be notified when the value changes
-            //characteristic?.descriptors?.forEach { descriptor ->
-            //        descriptor?.let {
-            //    it.value = if (enable) {
-            //        BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            //    } else {
-            //        BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-            //    }
-            //    bluetoothGatt?.writeDescriptor(it)
             //}
-            //}
-        }
-        
-        
-        @Override
-        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            super.onCharacteristicChanged(gatt, characteristic);
-            byte[] characteristicValue = characteristic.getValue();
-            int rightButtonValue = ((int) characteristicValue[2]);
-            if (rightButtonValue > 47)
-            {
-                //Uri alarmTone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-                //Ringtone ringtoneAlarm = RingtoneManager.getRingtone(getApplicationContext(), alarmTone);
-                //ringtoneAlarm.play();
-
-
-                AudioManager audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
-                audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, audioManager.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), 0);
-
-                //Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                //MediaPlayer mp=new MediaPlayer();
-                //mp.setLooping(false);
-                //mp = MediaPlayer.create(MainActivity.this, notification);
-                //mp.setVolume(1,1);
-                //mp.start();
-                
-
-                soundPool.play(sound1, 1F, 1F, 0, 0, 1F);
-                //soundPool.autoPause();
-            }
         }
     };
-
-
-
 
     private class SampleScanCallback extends ScanCallback {
 

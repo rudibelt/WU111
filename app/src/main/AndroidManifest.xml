@@ -15,7 +15,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.WU111">
-        <activity android:name=".DeviceControlActivity"></activity>
+        <service
+            android:name=".BleService"
+            android:enabled="true"
+            android:exported="true"></service>
+
+        <activity android:name=".DeviceControlActivity" />
         <activity
             android:name=".MainActivity"
             android:label="@string/app_name"
