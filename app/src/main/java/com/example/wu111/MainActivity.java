@@ -108,25 +108,9 @@ public class MainActivity extends AppCompatActivity {
                 notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
                 notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
 
-                PendingIntent pendingIntent =
-                        PendingIntent.getActivity(parent.getContext(), 0, notificationIntent, 0);
 
-                Notification notification =
-                        new Notification.Builder(parent.getContext(), "0")
-                                .setContentTitle("test")
-                                .setContentText("test")
-                                //.setSmallIcon(R.drawable.icon)
-                                .setContentIntent(pendingIntent)
-                                .setTicker("ticker")
-                                .build();
-
-// Notification ID cannot be 0.
                 startForegroundService(notificationIntent);
-                //
 
-                //ble.discoverServices();
-
-                //startActivity(intent);
             }
         });
 
@@ -214,18 +198,6 @@ public class MainActivity extends AppCompatActivity {
         //view.setText(getString(messageId));
     }
 
-    protected void onListItemClick(View v) {
-        //final BluetoothDevice device = mLeDeviceListAdapter.getDevice(position);
-        //if (device == null) return;
-        //final Intent intent = new Intent(this, DeviceControlActivity.class);
-        //intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
-        //intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
-        //if (mScanning) {
-        //    mBluetoothAdapter.stopLeScan(mLeScanCallback);
-        //    mScanning = false;
-        //}
-        //startActivity(intent);
-    }
     /**
      * Return a List of {@link ScanFilter} objects to filter by Service UUID.
      */

@@ -15,12 +15,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.media.SoundPool;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
+
+import androidx.core.app.NotificationCompat;
 
 import java.util.List;
 import java.util.Locale;
@@ -45,6 +52,9 @@ public class BleService extends Service {
 
     private SoundPool soundPool;
     private int sound1;
+    private MediaPlayer mp;
+    private boolean mIsPlaying = false;
+    private Ringtone r;
 
     public BleService() {
 
@@ -65,7 +75,19 @@ public class BleService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         super.onStartCommand(intent, flags, startId);
 
-        sound1 = soundPool.load(this, R.raw.bicycle_bell, 1);
+        AudioManager audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
+        audioManager.setStreamVolume(AudioManager.STREAM_RING, audioManager.getStreamMaxVolume(AudioManager.STREAM_RING),  AudioManager.FLAG_ALLOW_RINGER_MODES|AudioManager.FLAG_PLAY_SOUND);
+
+        Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+        //mp=new MediaPlayer();
+        //mp.setLooping(false);
+        //mp = MediaPlayer.create(this, notification);
+        //mp.setVolume(1,1);
+
+
+        r = RingtoneManager.getRingtone(getApplicationContext(), notification);
+        
+        //sound1 = soundPool.load(this, R.raw.bicycle_bell, 1);
         mBluetoothAdapter = ((BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE))
                 .getAdapter();
 
@@ -99,6 +121,7 @@ public class BleService extends Service {
             super.onConnectionStateChange(gatt, status, newState);
             if(status == BluetoothGatt.GATT_SUCCESS) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    //Toast.makeText(getBaseContext(), "EWWU111 connected", Toast.LENGTH_LONG).show();
                     ble = gatt;
                     // We successfully connected, proceed with service discovery
                     int bondstate = ble.getDevice().getBondState();
@@ -212,21 +235,37 @@ public class BleService extends Service {
             {
                 //Uri alarmTone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
                 //Ringtone ringtoneAlarm = RingtoneManager.getRingtone(getApplicationContext(), alarmTone);
-                //ringtoneAlarm.play();
+
+                //Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                //mp = MediaPlayer.create(getApplicationContext(), notification);
 
 
-                AudioManager audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
-                audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, audioManager.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), 0);
+                if (!mIsPlaying) {
 
-                //Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                //MediaPlayer mp=new MediaPlayer();
-                //mp.setLooping(false);
-                //mp = MediaPlayer.create(MainActivity.this, notification);
-                //mp.setVolume(1,1);
+                    r.play();
+                    mIsPlaying = true;
+                }
+                else
+                {
+                    r.stop();
+                    mIsPlaying = false;
+                }
+
+                discoverServicesRunnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        r.stop();
+                        mIsPlaying = false;
+                        discoverServicesRunnable = null;
+                    }
+                };
+
+                bleCallBackHandler.postDelayed(discoverServicesRunnable, 2000);
+                
                 //mp.start();
 
 
-                soundPool.play(sound1, 1F, 1F, 0, 0, 1F);
+                //soundPool.play(sound1, 1F, 1F, 0, 0, 1F);
                 //soundPool.autoPause();
             }
         }
