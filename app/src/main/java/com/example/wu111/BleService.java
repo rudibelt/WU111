@@ -1,5 +1,9 @@
 package com.example.wu111;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -13,6 +17,7 @@ import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
@@ -36,7 +41,7 @@ import java.util.UUID;
 import static android.bluetooth.BluetoothDevice.BOND_BONDED;
 import static android.bluetooth.BluetoothDevice.BOND_BONDING;
 import static android.bluetooth.BluetoothDevice.BOND_NONE;
-
+import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
 
 
 public class BleService extends Service {
@@ -55,6 +60,9 @@ public class BleService extends Service {
     private MediaPlayer mp;
     private boolean mIsPlaying = false;
     private Ringtone r;
+    private int originalRingVolume;
+    private String address;
+    private int disconnectCount;
 
     public BleService() {
 
@@ -75,7 +83,28 @@ public class BleService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         super.onStartCommand(intent, flags, startId);
 
+        String NOTIFICATION_CHANNEL_ID = "com.example.wu111.myapplication";
+        String channelName = "My Background BLE Service";
+        NotificationChannel chan = new NotificationChannel(NOTIFICATION_CHANNEL_ID, channelName,  NotificationManager.IMPORTANCE_NONE);
+        chan.setLightColor(Color.BLUE);
+        chan.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        assert manager != null;
+        manager.createNotificationChannel(chan);
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
+        Notification notificat = new Notification.Builder(this,NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("WU111 Ringer")
+                //.setContentIntent(pendingIntent)
+                .build();
+
+
+        startForeground(555, notificat);
+
+
         AudioManager audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
+        originalRingVolume = audioManager.getStreamVolume(AudioManager.STREAM_RING);
         audioManager.setStreamVolume(AudioManager.STREAM_RING, audioManager.getStreamMaxVolume(AudioManager.STREAM_RING),  AudioManager.FLAG_ALLOW_RINGER_MODES|AudioManager.FLAG_PLAY_SOUND);
 
         Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
@@ -91,16 +120,22 @@ public class BleService extends Service {
         mBluetoothAdapter = ((BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE))
                 .getAdapter();
 
-        String address = intent.getStringExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS);
+        address = intent.getStringExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS);
         BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
-        device.connectGatt(this, true, gattCallback);
-        //device.connectGatt(parent.getContext(), false, gattCallback, TRANSPORT_LE).connect();
+        BluetoothGatt bleGatt = device.connectGatt(this, true, gattCallback, TRANSPORT_LE);
+        //bleGatt.connect();
+
+
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        // restore original value
+        //stopForeground(true);
+        AudioManager audioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
+        audioManager.setStreamVolume(AudioManager.STREAM_RING, originalRingVolume,  AudioManager.FLAG_ALLOW_RINGER_MODES|AudioManager.FLAG_PLAY_SOUND);
     }
 
     @Override
@@ -122,6 +157,7 @@ public class BleService extends Service {
             if(status == BluetoothGatt.GATT_SUCCESS) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     //Toast.makeText(getBaseContext(), "EWWU111 connected", Toast.LENGTH_LONG).show();
+                    ConnectionManager.invoke(true);
                     ble = gatt;
                     // We successfully connected, proceed with service discovery
                     int bondstate = ble.getDevice().getBondState();
@@ -135,11 +171,12 @@ public class BleService extends Service {
                         }
                         final int delay = bondstate == BOND_BONDED ? delayWhenBonded : 0;
 
+                        BluetoothGatt finalGatt = gatt;
                         discoverServicesRunnable = new Runnable() {
                             @Override
                             public void run() {
                                 Log.d(TAG, String.format(Locale.ENGLISH, "discovering services of '%s' with delay of %d ms", ble.getDevice().getName(), delay));
-                                boolean result = gatt.discoverServices();
+                                boolean result = finalGatt.discoverServices();
                                 if (!result) {
                                     Log.e(TAG, "discoverServices failed to start");
                                 }
@@ -155,31 +192,42 @@ public class BleService extends Service {
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     // We successfully disconnected on our own request
                     //device.connectGatt(getBaseContext(), false, gattCallback);
-                    //gatt.connect();
+                    //gatt.disconnect();
                     //gatt.close();
+                    //gatt = null;
+                    //boolean result = gatt.connect();
+                    //ConnectionManager.invoke(false);
                 } else {
                     // We're CONNECTING or DISCONNECTING, ignore for now
                     //device.connectGatt(getBaseContext(), false, gattCallback);
                     //gatt.connect();
+                    //ConnectionManager.invoke(false);
                 }
             } else {
                 // An error happened...figure out what happened!
                 Log.d(TAG, "error occured when connection status code" + status);
-                //       ble.disconnect();
-                //       ble = device.connectGatt(getBaseContext(), false, gattCallback);
-                //       ble.connect();
 
-                //gatt.disconnect();
+                ConnectionManager.invoke(false);
+
+//                gatt.disconnect();
                 //gatt.close();
-                //gatt.connect();
                 if (status == 8)
                 {
-                    //gatt.connect();
-                    //mBleScanner = mBluetoothAdapter.getBluetoothLeScanner();
-                    //mBleScanner.startScan(null, new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
-                    //        mLeScanCallback);
+                    //boolean result = gatt.connect();
                 }
-
+                //gatt.connect();
+                if (status == 8 || status == 133 );//status == 8 || status == 133
+                {
+                    if (gatt != null) {
+                        gatt.close();
+                        gatt = null;
+                    }
+                    //gatt.disconnect();
+                    //gatt.close();
+                    BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
+                    BluetoothGatt blegatt = device.connectGatt(getBaseContext(), false, gattCallback);
+                    boolean result = blegatt.connect();
+                }
             }
         };
 
@@ -260,7 +308,7 @@ public class BleService extends Service {
                     }
                 };
 
-                bleCallBackHandler.postDelayed(discoverServicesRunnable, 2000);
+                bleCallBackHandler.postDelayed(discoverServicesRunnable, 2500);
                 
                 //mp.start();
 

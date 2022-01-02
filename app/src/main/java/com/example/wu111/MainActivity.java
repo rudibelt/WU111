@@ -1,41 +1,27 @@
 package com.example.wu111;
 
 import android.Manifest;
-import android.app.Notification;
-import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
-import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
-import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.media.AudioAttributes;
-import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
-import android.media.SoundPool;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ServiceCompat;
 
-import android.os.Handler;
-import android.os.Looper;
 import android.os.ParcelUuid;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -45,20 +31,14 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.AdapterView;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 
-import static android.bluetooth.BluetoothDevice.BOND_BONDED;
-import static android.bluetooth.BluetoothDevice.BOND_BONDING;
-import static android.bluetooth.BluetoothDevice.BOND_NONE;
-import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
-import static androidx.core.app.NotificationCompat.PRIORITY_LOW;
+import static androidx.core.app.ServiceCompat.stopForeground;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -72,21 +52,21 @@ public class MainActivity extends AppCompatActivity {
     private UUID SHIMANO_BICYCLE_INFORMATION = UUID.fromString("000018ef-5348-494d-414e-4f5f424c4500");
     private UUID INSTANTANEOUS_INFORMATION = UUID.fromString("00002ac2-5348-494d-414e-4f5f424c4500");
 
-
-
-    //private BluetoothDevice device;
-    private BluetoothLeScanner mBleScanner;
+    private ConnectionEventListener myEventListener = new MyEventListener();
+    private BluetoothDevice device;
+    private Intent notificationIntent;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         setContentView(R.layout.activity_main);
 
+        Log.d(TAG,"OnCreate");
+        //setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        ConnectionManager.registerListener(myEventListener);
 
-
-
-        
         ListView listView = (ListView) findViewById(R.id.listView);
         mAdapter = new ScanResultAdapter(getApplicationContext(),
                 LayoutInflater.from(this));
@@ -94,28 +74,18 @@ public class MainActivity extends AppCompatActivity {
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                BluetoothDevice device = mAdapter.getDevice(position);
-                if (device == null) return;
-                Intent intent = new Intent(parent.getContext(), DeviceControlActivity.class);
-                intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
-                intent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
-                //if (mScanning) {
-                    mBluetoothLeScanner.stopScan(mScanCallback);
-                    //mBluetoothAdapter.stopLeScan((BluetoothAdapter.LeScanCallback) mScanCallback);
-                    //mScanning = false;
-                //}
-                Intent notificationIntent = new Intent(parent.getContext(), BleService.class);
-                notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, device.getName());
-                notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, device.getAddress());
 
 
-                startForegroundService(notificationIntent);
 
             }
         });
 
 
-        if (savedInstanceState == null) {
+
+        if (savedInstanceState == null) { //savedInstanceState == null
+
+
+
             mBluetoothAdapter = ((BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE))
                     .getAdapter();
 
@@ -124,37 +94,7 @@ public class MainActivity extends AppCompatActivity {
 
                 // Is Bluetooth turned on?
                 if (mBluetoothAdapter.isEnabled()) {
-                    // Make sure we have access coarse location enabled, if not, prompt the user to enable it
-                    if (this.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                        final AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                        builder.setTitle("This app needs location access");
-                        builder.setMessage("Please grant location access so this app can detect peripherals.");
-                        builder.setPositiveButton(android.R.string.ok, null);
-                        builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                            @Override
-                            public void onDismiss(DialogInterface dialog) {
-                                requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, Constants.PERMISSION_REQUEST_COARSE_LOCATION);
-                            }
-                        });
-                        builder.show();
-                    }
-
-                    mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
-                    if (mBluetoothLeScanner != null) {
-                        startScanning();
-                        Log.d(TAG, "scan started");
-                    }  else {
-                        Log.e(TAG, "could not get scanner object");
-                    }
-                    // Are Bluetooth Advertisements supported on this device?
-                    //if (mBluetoothAdapter.isMultipleAdvertisementSupported()) {
-
-
-                    //} else {
-
-                    // Bluetooth Advertisements are not supported.
-                    //    showErrorText(R.string.bt_ads_not_supported);
-                    //}
+                    ScanAndConnect();
                 } else {
 
                     // Prompt user to turn on Bluetooth (logic continues in onActivityResult()).
@@ -168,6 +108,83 @@ public class MainActivity extends AppCompatActivity {
             }
 
         }
+    }
+
+    @Override
+    protected void onStart() {
+
+        super.onStart();
+    }
+    @Override
+    protected void onDestroy() {
+        if (isFinishing()) {
+            stopService(new Intent(this, BleService.class));
+        }
+        super.onDestroy();
+
+    }
+
+    private void ScanAndConnect() {
+        //BluetoothDevice device = mBluetoothAdapter.getRemoteDevice("DB:2D:A0:DA:8F:F1");
+        //StartService(getBaseContext(), device);
+        // Make sure we have access coarse location enabled, if not, prompt the user to enable it
+        if (this.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            final AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("This app needs location access");
+            builder.setMessage("Please grant location access so this app can detect peripherals.");
+            builder.setPositiveButton(android.R.string.ok, null);
+            builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
+                @Override
+                public void onDismiss(DialogInterface dialog) {
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, Constants.PERMISSION_REQUEST_COARSE_LOCATION);
+                }
+            });
+            builder.show();
+        }
+
+        mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
+        if (mBluetoothLeScanner != null) {
+            startScanning();
+            Log.d(TAG, "scan started");
+        }  else {
+            Log.e(TAG, "could not get scanner object");
+        }
+        // Are Bluetooth Advertisements supported on this device?
+        //if (mBluetoothAdapter.isMultipleAdvertisementSupported()) {
+
+
+        //} else {
+
+        // Bluetooth Advertisements are not supported.
+        //    showErrorText(R.string.bt_ads_not_supported);
+        //}
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+         super.onActivityResult(requestCode, resultCode, data);
+         if (requestCode == Constants.REQUEST_ENABLE_BT && resultCode == -1)
+         {
+             ScanAndConnect();
+         }
+    }
+
+    private void StartService(Context context, BluetoothDevice bleDevice) {
+
+        if (bleDevice == null) return;
+
+        //if (mScanning) {
+        //mBluetoothLeScanner.stopScan(mScanCallback);
+        //mBluetoothAdapter.stopLeScan((BluetoothAdapter.LeScanCallback) mScanCallback);
+        //mScanning = false;
+        //}
+        notificationIntent = new Intent(context, BleService.class);
+        notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_NAME, bleDevice.getName());
+        notificationIntent.putExtra(DeviceControlActivity.EXTRAS_DEVICE_ADDRESS, bleDevice.getAddress());
+
+
+        startForegroundService(notificationIntent);
+
     }
 
     @Override
@@ -217,9 +234,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private ScanSettings buildScanSettings() {
         ScanSettings.Builder builder = new ScanSettings.Builder();
-        builder.setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+        builder.setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES )
-                .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+                .setMatchMode(ScanSettings.CALLBACK_TYPE_FIRST_MATCH)
                 .setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
                 .setReportDelay(0L);
         return builder.build();
@@ -241,7 +258,7 @@ public class MainActivity extends AppCompatActivity {
 
             // Kick off a new scan.
             mScanCallback = new SampleScanCallback();
-            mBluetoothLeScanner.stopScan(mScanCallback);
+            //mBluetoothLeScanner.stopScan(mScanCallback);
             mBluetoothLeScanner.startScan(buildScanFilters(), buildScanSettings(),mScanCallback);
 
             String toastText = getString(R.string.scan_start_toast);
@@ -256,19 +273,7 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private ScanCallback mLeScanCallback = new ScanCallback() {
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-            super.onScanResult(callbackType, result);
-            //if (result.getDevice().getAddress().equals(mBluetoothDeviceAddress)) {
-                //mMainHandler.post(mConnectRunnable);
-                if (mBleScanner != null) {
-                    mBleScanner.stopScan(mLeScanCallback);
-                    mBleScanner = null;
-                }
-            //}
-        }
-    };
+
 
     private class SampleScanCallback extends ScanCallback {
 
@@ -286,8 +291,15 @@ public class MainActivity extends AppCompatActivity {
         public void onScanResult(int callbackType, ScanResult result) {
             super.onScanResult(callbackType, result);
 
-            mAdapter.add(result);
+            if (mAdapter.add(result) == true) //first hit
+            {
+                mBluetoothLeScanner.stopScan(this);
+                // auto connect
+                StartService(getApplicationContext(), result.getDevice());
+            }
+
             mAdapter.notifyDataSetChanged();
+
 
         }
 
@@ -300,5 +312,35 @@ public class MainActivity extends AppCompatActivity {
 
 
     }
+
+    public class MyEventListener implements ConnectionEventListener{
+
+        @Override
+        public void onConnectionSetupComplete() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    TextView textview = findViewById(R.id.connectionTextView);
+                    textview.setText("Connected");
+                 }
+            });
+            }
+
+        @Override
+        public void onDisconnect() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    TextView textview = findViewById(R.id.connectionTextView);
+                    textview.setText("Not Connected");
+
+                }
+            });
+        }
+    }
+
+
+
+    
 
 }

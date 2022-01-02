@@ -110,16 +110,18 @@ public class ScanResultAdapter extends BaseAdapter {
      * Add a ScanResult item to the adapter if a result from that device isn't already present.
      * Otherwise updates the existing position with the new ScanResult.
      */
-    public void add(ScanResult scanResult) {
+    public boolean add(ScanResult scanResult) {
 
         int existingPosition = getPosition(scanResult.getDevice().getAddress());
 
         if (existingPosition >= 0) {
             // Device is already in list, update its record.
             mArrayList.set(existingPosition, scanResult);
+            return false;
         } else {
             // Add new Device's ScanResult to list.
             mArrayList.add(scanResult);
+            return true;
         }
     }
 
